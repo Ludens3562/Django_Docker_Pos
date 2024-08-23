@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>商品絞り込み</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h1,
+        h2 {
+            color: #333;
+        }
+
+        form {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            width: 25%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        p {
+            margin: 10px 0;
+        }
+
+        table {
+            width: 85%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            $('form').submit(function (event) {
+                event.preventDefault(); // フォームの通常の送信を防ぎます。
+                $.ajax({
+                    url: '', // 現在のURL
+                    type: 'get',
+                    data: $(this).serialize(), // フォームのデータをシリアライズ
+                    dataType: 'json',
+                    success: function (data) {
+                        $('table tr:not(:first)').remove(); // 既存の結果をクリア
+                        $.each(data.items, function (i, item) {
+                            var row = `<tr>
+                            <td>${item.fields.name}</td>
+                            <td>${item.fields.price}</td>
+                            <td>${item.fields.reduce_tax}</td>
+                            <td>${item.fields.stock}</td>
+                          </tr>`;
+                            $('table').append(row); // 新しい行をテーブルに追加
+                        });
+                    }
+                });
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <h1>商品絞り込み</h1>
+    <form method="get">
+        {{ form.as_p }}
+        <button type="submit">絞り込む</button>
+    </form>
+
+    <h2>結果</h2>
+    <table>
+        <tr>
+            <th>商品名</th>
+            <th>価格</th>
+            <th>税率</th>
+            <th>在庫数</th>
+        </tr>
+        {% for product in products %}
+        <tr>
+            <td>{{ product.name }}</td>
+            <td>¥{{ product.price }}</td>
+            <td>{{ product.tax_rate }}</td>
+            <td>{{ product.total_stock }}</td>
+        </tr>
+        {% endfor %}
+    </table>    
+</body>
+
+</html>

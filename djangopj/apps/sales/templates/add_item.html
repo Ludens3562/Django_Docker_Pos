@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Add Item</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h2,
+        h3 {
+            color: #333;
+        }
+
+        form {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        p {
+            margin: 10px 0;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        ul li {
+            padding: 8px;
+            margin-bottom: 2px;
+            background-color: #f2f2f2;
+            border-radius: 4px;
+        }
+
+        .error {
+            color: red;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            /* 罫線を重ねる */
+        }
+
+        td,
+        th {
+            border: 1px solid #ddd;
+            /* 罫線のスタイル */
+            padding: 8px;
+            /* セルの内側の余白 */
+        }
+
+        th {
+            background-color: #f2f2f2;
+            /* 見出しの背景色 */
+        }
+    </style>
+</head>
+
+<body>
+    <h2>商品のJANコードを入力してください</h2>
+    <form action="" method="post"> <!-- ここを修正 -->
+        {% csrf_token %}
+        <label for="jan">JAN Code:</label>
+        <input type="text" id="jan" name="jan">
+        <button type="submit">追加</button>
+    </form>
+    <!-- エラーメッセージの表示 -->
+    {% if error %}
+    <p style="color: red;">{{ error }}</p>
+    {% endif %}
+    <br>
+    <h3>Items in Cart</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>JAN</th>
+                <th>商品名</th>
+                <th>税率</th>
+                <th>価格</th>
+                <th>削除</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items_data %}
+            <tr>
+                <td>{{ item.0 }}</td> <!-- JAN Code -->
+                <td>{{ item.1 }}</td> <!-- Item Name -->
+                <td>{{ item.2 }}</td> <!-- tax rate -->
+                <td>¥{{ item.3 }}</td> <!-- Price -->
+                <td>
+                    <form action="{% url 'delete_item' %}" method="post" style="margin:0;">
+                        {% csrf_token %}
+                        <input type="hidden" name="jan" value="{{ item.0 }}">
+                        <button type="submit" style="border:none; background-color:transparent; cursor:pointer;">
+                            ✖️
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="4">No items added.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p>合計金額: {{ total_price }}円</p>
+    <form action="{% url 'checkout' %}" method="post">
+        {% csrf_token %}
+        <button type="submit">会計に進む</button>
+    </form>
+</body>
+
+</html>

@@ -1,0 +1,17 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+{% load static %}
+<head>
+    <meta charset="UTF-8">
+    <title>Checkout</title>
+</head>
+<body>
+    <h2>Total Price: ¥{{ total_price }}</h2>
+    <form action="{% url 'proceed_to_checkout' %}" method="post">
+        {% csrf_token %}
+        <button type="submit">支払い完了</button>
+    </form>
+    <a href="{% url 'add_item_to_list' %}">Add More Products</a>
+</body>
+</html>

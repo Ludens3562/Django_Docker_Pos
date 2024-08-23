@@ -1,0 +1,33 @@
+{% extends "admin/change_list.html" %}
+{% load humanize %}
+
+{% block content %}
+<h2>販売概要</h2>
+<table>
+    <thead>
+        <tr>
+            <th>JAN</th>
+            <th>商品名</th>
+            <th>販売日</th>
+            <th>合計額</th>
+            <th>合計点数</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in summary %}
+        <tr>
+            <td>{{ item.JAN__JAN }}</td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.transaction__sale_date__date|date:"Y-m-d" }}</td>
+            <td>{{ item.total_amount|intcomma }}</td>
+            <td>{{ item.total_points|intcomma }}</td>
+        </tr>
+        {% endfor %}
+        <tr>
+            <td colspan="3"><strong>合計</strong></td>
+            <td><strong>{{ total_amount|intcomma }}</strong></td>
+            <td><strong>{{ total_points|intcomma }}</strong></td>
+        </tr>
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,5 @@
+{% extends "admin/change_form.html" %}
+{% block after_field_sets %}
+    {{ block.super }}
+    <div id="coupon_notice" style="display:none; color: red; margin-top: 9px;"></div>
+{% endblock %}

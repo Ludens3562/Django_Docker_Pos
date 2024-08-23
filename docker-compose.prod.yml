@@ -1,0 +1,64 @@
+# docker-composeのバージョンを指定
+version: "3.9"
+
+# db(Postgres),app(Django)のコンテナを作成
+services:
+  db:
+    container_name: postgres
+    build:
+      context: .
+      dockerfile: containers/postgres/Dockerfile
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: pg_isready -U "${POSTGRES_USER:-postgres}" || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # コンテナ内の環境変数を.env.prodを使って設定
+    env_file:
+      - .env.prod
+  app:
+    container_name: app
+    build:
+      context: .
+      dockerfile: containers/django/Dockerfile
+    volumes:
+      - .:/code
+      - ./static:/static
+    # 8000番ポートをNginx側が接続できるよう開く
+    expose:
+      - "8000"
+    # シェルスクリプトを実行
+    command: sh -c "/usr/local/bin/entrypoint.sh"
+    # コンテナ内の環境変数を.env.prodを使って設定
+    env_file:
+      - .env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    # コンテナ名をwebに指定
+    container_name: web
+    # NginxのDockerfileをビルドする
+    build:
+      # ビルドコンテキストはカレントディレクトリ
+      context: .
+      dockerfile: containers/nginx/Dockerfile
+    # ボリュームを指定
+    # ローカルの/staticをコンテナの/staticにマウントする
+    volumes:
+      - ./static:/static
+    # ローカルの80番ボートをコンテナの80番ポートとつなぐ
+    ports:
+      - "80:80"
+    # 先にappを起動してからwebを起動する
+    depends_on:
+      - app
+
+volumes:
+  db_data:
+  static:
