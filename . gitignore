@@ -1,0 +1,17 @@
+# Environments
+.env
+# .env.prodを.gitignoreする
+.env.prod
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+・・・
+
+# ignore static files
+static/
+# ignore migration files
+migrations/
