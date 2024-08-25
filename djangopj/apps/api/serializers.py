@@ -118,7 +118,7 @@ class TransactionSerializer(serializers.ModelSerializer):
 
     def apply_discount(self, amount, coupon, sale_products_data):
         discount = 0
-        
+
         if coupon.coupon_type == "percent":
             discount = (amount * coupon.discount_percentage / Decimal("100.0")).quantize(
                 Decimal("1"), rounding=ROUND_HALF_UP
@@ -139,7 +139,13 @@ class TransactionSerializer(serializers.ModelSerializer):
                 discount = int(coupon.discount_value)
         elif coupon.coupon_type == "multi":
             applicable_product_jan = coupon.applicable_product_jan
-            total_quantity = sum([product["points"] for product in sale_products_data if str(product["JAN"]) == applicable_product_jan.JAN])
+            total_quantity = sum(
+                [
+                    product["points"]
+                    for product in sale_products_data
+                    if str(product["JAN"]) == applicable_product_jan.JAN
+                ]
+            )
             if total_quantity >= coupon.min_quantity:
                 discount_multiplier = total_quantity // coupon.min_quantity
                 discount = coupon.discount_value * discount_multiplier
@@ -173,9 +179,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         try:
             stock = Stock.objects.get(storecode=storecode, JAN=product)
         except Stock.DoesNotExist:
-            raise serializers.ValidationError(
-                f"店舗コード {storecode} と JANコード {jan_code} の在庫が存在しません。"
-            )
+            raise serializers.ValidationError(f"店舗コード {storecode} と JANコード {jan_code} の在庫が存在しません。")
 
         stock.quantity -= points
         stock.save()
@@ -200,81 +204,93 @@ class TransactionSerializer(serializers.ModelSerializer):
         )
         return tax_10_total, tax_8_total
 
-def create(self, validated_data):
-    sale_products_data = validated_data.pop("sale_products")
-    storecode = validated_data.get("storecode")
-    deposit = validated_data.get("deposit")
-    coupon_code = validated_data.get("coupon_code")
+    def create(self, validated_data):
+        sale_products_data = validated_data.pop("sale_products")
+        storecode = validated_data.get("storecode")
+        deposit = validated_data.get("deposit")
+        coupon_code = validated_data.get("coupon_code")
 
-    purchase_points = 0
-    tax_10_total_price = Decimal("0.00")
-    tax_8_total_price = Decimal("0.00")
+        purchase_points = 0
+        tax_10_total_price = Decimal("0.00")
+        tax_8_total_price = Decimal("0.00")
 
-    with transaction.atomic():
-        current_time = timezone.now()
-        storecode_str = str(storecode)
-        staffcode = str(validated_data.get("staffcode"))
-        cutted_ms = str(current_time).split(".")[1][:4]
-        sqids = Sqids(min_length=10, alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-        sale_id = sqids.encode([int(cutted_ms), int(storecode_str), int(staffcode)])
+        with transaction.atomic():
+            current_time = timezone.now()
+            storecode_str = str(storecode)
+            staffcode = str(validated_data.get("staffcode"))
+            cutted_ms = str(current_time).split(".")[1][:4]
+            sqids = Sqids(min_length=10, alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+            sale_id = sqids.encode([int(cutted_ms), int(storecode_str), int(staffcode)])
 
-        transaction_instance = self.create_transaction_instance(validated_data, sale_id, current_time)
+            transaction_instance = Transaction.objects.create(
+                **validated_data,
+                sale_id=sale_id,
+                sale_date=current_time,
+                purchase_points=0,  # 初期値を設定
+                tax_10_percent=Decimal("0.00"),  # 初期値を設定
+                tax_8_percent=Decimal("0.00"),  # 初期値を設定
+                tax_amount=Decimal("0.00"),  # 初期値を設定
+                total_amount=Decimal("0.00"),  # 初期値を設定
+                change=Decimal("0.00"),  # 初期値を設定
+                discount_amount=Decimal("0.00")  # 初期値を設定
+            )
 
-        for sale_product_data in sale_products_data:
-            price, tax_rate, points = self.process_sale_product(sale_product_data, storecode, transaction_instance)
-            purchase_points += points
+            for sale_product_data in sale_products_data:
+                price, tax_rate, points = self.process_sale_product(sale_product_data, storecode, transaction_instance)
+                purchase_points += points
 
-            if tax_rate == Decimal("10.00"):
-                tax_10_total_price += price * points
-            elif tax_rate == Decimal("8.00"):
-                tax_8_total_price += price * points
+                if tax_rate == Decimal("10.00"):
+                    tax_10_total_price += price * points
+                elif tax_rate == Decimal("8.00"):
+                    tax_8_total_price += price * points
 
-        total_amount_with_tax = tax_10_total_price + tax_8_total_price
-        discount_amount = Decimal('0.00')
+            total_amount_with_tax = tax_10_total_price + tax_8_total_price
+            discount_amount = Decimal("0.00")
 
-        if coupon_code:
-            try:
-                coupon = Coupon.objects.get(code=coupon_code)
-                total_amount_with_tax, discount_amount = self.apply_discount(total_amount_with_tax, coupon, sale_products_data)
-            except Coupon.DoesNotExist:
-                raise serializers.ValidationError("無効または期限切れのクーポンコードです。")
+            if coupon_code:
+                try:
+                    coupon = Coupon.objects.get(code=coupon_code)
+                    total_amount_with_tax, discount_amount = self.apply_discount(
+                        total_amount_with_tax, coupon, sale_products_data
+                    )
+                except Coupon.DoesNotExist:
+                    raise serializers.ValidationError("無効または期限切れのクーポンコードです。")
 
-            # 割引後の価格から税額を再計算
-            if coupon.coupon_type in ["percent", "amount", "combo"]:
-                tax_10_total_price -= (discount_amount * (tax_10_total_price / total_amount_with_tax))
-                tax_8_total_price -= (discount_amount * (tax_8_total_price / total_amount_with_tax))
-            elif coupon.coupon_type in ["product", "multi"]:
-                # 割引適用後の個別税額を計算
-                tax_10_total_price = sum(
-                    p["price"] * p["points"]
-                    for p in sale_products_data if Decimal(p["tax"]) == Decimal("10.00")
-                )
-                tax_8_total_price = sum(
-                    p["price"] * p["points"]
-                    for p in sale_products_data if Decimal(p["tax"]) == Decimal("8.00")
-                )
+                if coupon.coupon_type in ["percent", "amount", "combo"]:
+                    tax_10_total_price -= discount_amount * (tax_10_total_price / total_amount_with_tax)
+                    tax_8_total_price -= discount_amount * (tax_8_total_price / total_amount_with_tax)
+                elif coupon.coupon_type in ["product", "multi"]:
+                    tax_10_total_price = sum(
+                        p["price"] * p["points"] for p in sale_products_data if Decimal(p["tax"]) == Decimal("10.00")
+                    )
+                    tax_8_total_price = sum(
+                        p["price"] * p["points"] for p in sale_products_data if Decimal(p["tax"]) == Decimal("8.00")
+                    )
 
-        tax_10_total, tax_8_total = self.calculate_tax_amounts(tax_10_total_price, tax_8_total_price)
-        tax_amount = tax_10_total + tax_8_total
+            tax_10_total, tax_8_total = self.calculate_tax_amounts(tax_10_total_price, tax_8_total_price)
+            tax_amount = tax_10_total + tax_8_total
 
-        change = deposit - total_amount_with_tax
+            change = deposit - total_amount_with_tax
 
-        if deposit <= total_amount_with_tax:
-            raise serializers.ValidationError("預かり金は総額を超えている必要があります。")
-        if change < Decimal("0.00"):
-            raise serializers.ValidationError("お釣りは正の値である必要があります。")
+            if deposit <= total_amount_with_tax:
+                raise serializers.ValidationError("預かり金は総額を超えている必要があります。")
+            if change < Decimal("0.00"):
+                raise serializers.ValidationError("お釣りは正の値である必要があります。")
 
-        transaction_instance.purchase_points = purchase_points
-        transaction_instance.coupon_code = coupon_code
-        transaction_instance.tax_10_percent = tax_10_total
-        transaction_instance.tax_8_percent = tax_8_total
-        transaction_instance.tax_amount = tax_amount
-        transaction_instance.total_amount = total_amount_with_tax
-        transaction_instance.change = change
-        transaction_instance.discount_amount = discount_amount
-        transaction_instance.save()
+            # Set fields before saving the transaction instance
+            transaction_instance.purchase_points = purchase_points
+            transaction_instance.coupon_code = coupon_code
+            transaction_instance.tax_10_percent = tax_10_total
+            transaction_instance.tax_8_percent = tax_8_total
+            transaction_instance.tax_amount = tax_amount
+            transaction_instance.total_amount = total_amount_with_tax
+            transaction_instance.change = change
+            transaction_instance.discount_amount = discount_amount
 
-    return transaction_instance
+            # Now save the instance
+            transaction_instance.save()
+
+        return transaction_instance
 
 
 # 返品製品のシリアライザー
