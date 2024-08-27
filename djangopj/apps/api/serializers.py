@@ -232,7 +232,7 @@ class TransactionSerializer(serializers.ModelSerializer):
                 tax_amount=Decimal("0.00"),  # 初期値を設定
                 total_amount=Decimal("0.00"),  # 初期値を設定
                 change=Decimal("0.00"),  # 初期値を設定
-                discount_amount=Decimal("0.00")  # 初期値を設定
+                discount_amount=Decimal("0.00"),  # 初期値を設定
             )
 
             for sale_product_data in sale_products_data:
@@ -310,62 +310,171 @@ class ReturnProductSerializer(serializers.ModelSerializer):
 class ReturnTransactionSerializer(serializers.ModelSerializer):
     return_products = ReturnProductSerializer(many=True, write_only=True, required=False)
     return_date = serializers.DateTimeField(read_only=True)
-    returnproduct_set = ReturnProductSerializer(many=True, read_only=True, source="return_products")
+    returnproduct_set = ReturnProductSerializer(many=True, read_only=True, source='return_products')
 
     class Meta:
         model = ReturnTransaction
         fields = [
-            "return_type",
-            "return_id",
-            "originSaleid",
-            "storecode",
-            "staffcode",
-            "reason",
-            "return_points",
-            "tax_10_percent",
-            "tax_8_percent",
-            "tax_amount",
-            "return_amount",
-            "return_date",
-            "return_products",
-            "returnproduct_set",
+            "return_type", "return_id", "originSaleid", "storecode", "staffcode",
+            "reason", "return_points", "tax_10_percent", "tax_8_percent",
+            "tax_amount", "return_amount", "return_date", "return_products", "returnproduct_set"
         ]
-        read_only_fields = ["return_date", "returnproduct_set"]
+        read_only_fields = [
+            "return_id", "storecode", "return_points", "tax_10_percent", "tax_8_percent",
+            "tax_amount", "return_amount", "return_date", "returnproduct_set"
+        ]
+
+    def validate_originSaleid(self, value):
+        if not Transaction.objects.filter(sale_id=value.sale_id, sale_type__in=[1, 4]).exists():
+            raise serializers.ValidationError("The relevant transaction does not exist or is not a returnable transaction.")
+        return value
+
+    def validate(self, data):
+        return_type = data.get('return_type')
+        return_products = data.get('return_products', [])
+        originSaleid = data.get('originSaleid')
+
+        if return_type == '1':  # 全返品の場合
+            if not originSaleid:
+                raise serializers.ValidationError("Origin Sale ID must be provided for full return.")
+            sale_products = SaleProduct.objects.filter(transaction=originSaleid)
+            if not sale_products.exists():
+                raise serializers.ValidationError("No products found for the given sale transaction.")
+            data['return_products'] = [
+                {'JAN': sp.JAN.JAN, 'name': sp.name, 'price': sp.price, 'tax': sp.tax, 'points': sp.points}
+                for sp in sale_products
+            ]
+        else:  # 一部返品の場合
+            if not return_products:
+                raise serializers.ValidationError("At least one return product must be provided.")
+            sale_products = SaleProduct.objects.filter(transaction=originSaleid)
+            sale_product_jans = sale_products.values_list('JAN', flat=True)
+            for return_product in return_products:
+                if return_product['JAN'] not in sale_product_jans:
+                    raise serializers.ValidationError(f"Product with JAN {return_product['JAN']} is not part of the original transaction.")
+        
+        return data
+
+    def apply_discount(self, amount, coupon, sale_products_data):
+        discount = 0
+        
+        if coupon.coupon_type == "percent":
+            discount = (amount * coupon.discount_percentage / Decimal("100.0")).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
+        elif coupon.coupon_type == "amount":
+            discount = coupon.discount_value
+        elif coupon.coupon_type == "product":
+            applicable_products = coupon.applicable_product_jan
+            for sale_product in sale_products_data:
+                if str(sale_product["JAN"]) == applicable_products.JAN:
+                    discount = coupon.discount_value
+                    break
+        elif coupon.coupon_type == "combo":
+            combo_products = coupon.combo_product_jans.all()
+            combo_jan_list = [product.JAN for product in combo_products]
+            sale_jan_list = [str(product["JAN"]) for product in sale_products_data]
+            if all(jan in sale_jan_list for jan in combo_jan_list):
+                discount = int(coupon.discount_value)
+        elif coupon.coupon_type == "multi":
+            applicable_product_jan = coupon.applicable_product_jan
+            total_quantity = sum([product["points"] for product in sale_products_data if str(product["JAN"]) == applicable_product_jan.JAN])
+            if total_quantity >= coupon.min_quantity:
+                discount_multiplier = total_quantity // coupon.min_quantity
+                discount = coupon.discount_value * discount_multiplier
+        return amount - discount, discount
+
+    def calculate_tax_amounts(self, tax_10_total_price, tax_8_total_price):
+        tax_10_total = (tax_10_total_price * Decimal("10.00") / Decimal("110.00")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_DOWN
+        )
+        tax_8_total = (tax_8_total_price * Decimal("8.00") / Decimal("108.00")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_DOWN
+        )
+        return tax_10_total, tax_8_total
 
     def create(self, validated_data):
-        return_products_data = validated_data.pop("return_products", [])
-        return_transaction = ReturnTransaction.objects.create(**validated_data)
+        return_products_data = validated_data.pop("return_products")
+        origin_sale_id = validated_data.get("originSaleid")
+        storecode = origin_sale_id.storecode
 
-        for product_data in return_products_data:
-            ReturnProduct.objects.create(return_transaction=return_transaction, **product_data)
+        return_points = 0
+        tax_10_total_price = Decimal("0.00")
+        tax_8_total_price = Decimal("0.00")
 
-        return return_transaction
+        with transaction.atomic():
+            current_time = timezone.now()
+            storecode_str = str(storecode)
+            staffcode = str(validated_data.get("staffcode"))
+            cutted_ms = str(current_time).split('.')[1][:4]
+            sqids = Sqids(min_length=10, alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+            return_id = sqids.encode([int(cutted_ms), int(storecode_str), int(staffcode)])
+            return_instance = ReturnTransaction.objects.create(
+                return_date=current_time,
+                return_id=return_id,
+                return_points=0,
+                tax_10_percent=Decimal("0.00"),
+                tax_8_percent=Decimal("0.00"),
+                tax_amount=Decimal("0.00"),
+                return_amount=Decimal("0.00"),
+                storecode=storecode,
+                **validated_data
+            )
 
-    def update(self, instance, validated_data):
-        return_products_data = validated_data.pop("return_products", [])
-        instance.return_type = validated_data.get("return_type", instance.return_type)
-        instance.return_id = validated_data.get("return_id", instance.return_id)
-        instance.originSaleid = validated_data.get("originSaleid", instance.originSaleid)
-        instance.storecode = validated_data.get("storecode", instance.storecode)
-        instance.staffcode = validated_data.get("staffcode", instance.staffcode)
-        instance.reason = validated_data.get("reason", instance.reason)
-        instance.return_points = validated_data.get("return_points", instance.return_points)
-        instance.tax_10_percent = validated_data.get("tax_10_percent", instance.tax_10_percent)
-        instance.tax_8_percent = validated_data.get("tax_8_percent", instance.tax_8_percent)
-        instance.tax_amount = validated_data.get("tax_amount", instance.tax_amount)
-        instance.return_amount = validated_data.get("return_amount", instance.return_amount)
-        instance.save()
+            for return_product_data in return_products_data:
+                jan_code = return_product_data["JAN"]
+                points = return_product_data["points"]
 
-        # Update or create return products
-        for product_data in return_products_data:
-            product_id = product_data.get("id")
-            if product_id:
-                product = ReturnProduct.objects.get(id=product_id, return_transaction=instance)
-                product.name = product_data.get("name", product.name)
-                product.quantity = product_data.get("quantity", product.quantity)
-                product.price = product_data.get("price", product.price)
-                product.save()
-            else:
-                ReturnProduct.objects.create(return_transaction=instance, **product_data)
+                try:
+                    product = Product.objects.get(JAN=jan_code)
+                except Product.DoesNotExist:
+                    raise serializers.ValidationError(f"Product with JAN code {jan_code} does not exist.")
 
-        return instance
+                price = product.price
+                tax_rate = product.tax
+
+                if tax_rate == Decimal("10.00"):
+                    tax_10_total_price += price * points
+                elif tax_rate == Decimal("8.00"):
+                    tax_8_total_price += price * points
+
+                try:
+                    stock = Stock.objects.get(storecode=storecode, JAN=product)
+                except Stock.DoesNotExist:
+                    raise serializers.ValidationError(f"Stock for product with JAN code {jan_code} in store {storecode} does not exist.")
+
+                stock.quantity += points
+                stock.save()
+
+                ReturnProduct.objects.create(
+                    return_transaction=return_instance, JAN=product, name=product.name, price=price, tax=tax_rate, points=points
+                )
+
+                return_points += points
+
+            tax_10_total, tax_8_total = self.calculate_tax_amounts(tax_10_total_price, tax_8_total_price)
+            tax_amount = tax_10_total + tax_8_total
+            return_amount_with_tax = tax_10_total_price + tax_8_total_price
+
+            # 割引の適用
+            discount_amount = origin_sale_id.discount_amount
+            if discount_amount:
+                return_amount_with_tax -= discount_amount
+
+            return_instance.return_points = return_points
+            return_instance.tax_10_percent = tax_10_total
+            return_instance.tax_8_percent = tax_8_total
+            return_instance.tax_amount = tax_amount
+            return_instance.return_amount = return_amount_with_tax + tax_amount
+            return_instance.save()
+
+            # Origin transaction sale_type update
+            origin_sale_id.sale_type = 2
+            origin_sale_id.save()
+
+        return return_instance
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["returnproduct_set"] = ReturnProductSerializer(instance.return_products.all(), many=True).data
+        return representation
