@@ -3,6 +3,8 @@ from django.db import transaction
 from django.db.models import Sum, F, FloatField, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.html import format_html
+from django.urls import reverse
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
 from simple_history.admin import SimpleHistoryAdmin
@@ -194,11 +196,20 @@ class TransactionAdmin(ImportExportModelAdmin, SimpleHistoryAdmin):
         "total_amount",
         "deposit",
         "change",
+        "receipt_button",  # ここに新しい列を追加
     )
     search_fields = ("sale_id", "storecode__storecode", "staffcode__staffcode")
     list_filter = ("sale_type", "sale_date")
     ordering = ("-id",)
     inlines = [SaleProductInline]
+
+    def receipt_button(self, obj):
+        return format_html(
+            '<a class="button" href="{}">電子レシート</a>',
+            reverse('generate_receipt_view', args=[obj.sale_id])  # obj.sale_id を使用
+        )
+    receipt_button.short_description = '電子レシート'
+    receipt_button.allow_tags = True    
 
 
 class SaleProductAdmin(ImportExportModelAdmin, SimpleHistoryAdmin):

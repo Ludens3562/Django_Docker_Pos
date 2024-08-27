@@ -21,6 +21,7 @@ services:
     # コンテナ内の環境変数を.env.prodを使って設定
     env_file:
       - .env.prod
+
   app:
     container_name: app
     build:
@@ -37,6 +38,7 @@ services:
     # コンテナ内の環境変数を.env.prodを使って設定
     env_file:
       - .env.prod
+    tty: true
     depends_on:
       db:
         condition: service_healthy
@@ -58,6 +60,19 @@ services:
     # 先にappを起動してからwebを起動する
     depends_on:
       - app
+
+  receipt:
+    # コンテナ名をwebに指定
+    container_name: receipt
+    # NginxのDockerfileをビルドする
+    build:
+      # ビルドコンテキストはカレントディレクトリ
+      context: .
+      dockerfile: containers/receiptline/Dockerfile
+    # ローカルの80番ボートをコンテナの80番ポートとつなぐ
+    expose:
+      - "6573"
+
 
 volumes:
   db_data:
