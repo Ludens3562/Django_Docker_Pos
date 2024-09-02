@@ -9,3 +9,4 @@ djangorestframework-api-key==3.0.0
 requests==2.32.3
 sqids==0.4.1
 ulid-py==1.1.0
+django-cors-headers==4.4.0
