@@ -14,9 +14,9 @@ services:
       - "5432:5432"
     healthcheck:
       test: pg_isready -U "${POSTGRES_USER:-postgres}" || exit 1
-      interval: 5s
+      interval: 2s # 2秒に一回ヘルスチェック
       timeout: 5s
-      retries: 5
+      retries: 3
       start_period: 30s
     # コンテナ内の環境変数を.env.prodを使って設定
     env_file:
@@ -42,6 +42,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
   web:
     # コンテナ名をwebに指定
     container_name: web
@@ -60,6 +61,7 @@ services:
     # 先にappを起動してからwebを起動する
     depends_on:
       - app
+      - react
 
   receipt:
     # コンテナ名をwebに指定
@@ -73,7 +75,27 @@ services:
     expose:
       - "6573"
 
+  react:
+    container_name: react
+    build:
+      context: .
+      dockerfile: containers/react/Dockerfile
+    volumes:
+      - ./reactproj:/usr/src/app
+      - react_node_modules:/usr/src/app/node_module
+    expose:
+      - "3000"
+    ports:
+      - "3000:3000"
+    command: sh -c "/usr/local/bin/entrypoint.sh"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - NODE_OPTIONS=--openssl-legacy-provider
+    stdin_open: true
+    tty: true
+
 
 volumes:
   db_data:
   static:
+  react_node_modules:
