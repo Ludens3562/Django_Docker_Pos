@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 from pathlib import Path
 import os
 import mimetypes
+from corsheaders.defaults import default_headers
 
 # プロジェクトのベースディレクトリ
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,6 +41,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "import_export",
     "simple_history",
+    "corsheaders",
     "rest_framework_api_key",
     "django.contrib.humanize",
 ]
@@ -55,6 +57,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "debug_toolbar.middleware.DebugToolbarMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
 ]
 
 # ルートURL設定
@@ -123,7 +126,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "user.CustomUser"
 
 # デバッグツールバーの内部IP設定
-INTERNAL_IPS = ["127.0.0.1"]
+INTERNAL_IPS = ["*"]
+
+# リバースプロキシを噛ませてもデバックツールバーを表示する
+DEBUG_TOOLBAR_CONFIG = {
+    "SHOW_TOOLBAR_CALLBACK": lambda request: True,
+}
 
 # Django REST frameworkの設定
 REST_FRAMEWORK = {
@@ -136,3 +144,10 @@ API_KEY_CUSTOM_HEADER = "HTTP_X_API_KEY"
 
 # これがないとDebug = Trueでcssが読み込めなくなる
 mimetypes.add_type("text/css", ".css", True)
+
+# !!!開発用の設定!!! 全てのオリジンからのリクエストを許可
+CORS_ALLOW_ALL_ORIGINS = True
+# 許可するカスタムヘッダーを追加
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'X-Api-Key',
+]
