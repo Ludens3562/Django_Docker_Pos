@@ -174,7 +174,7 @@ class TransactionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"JANコード {jan_code} を持つ商品が存在しません。")
 
         price = product.price
-        tax_rate = product.tax
+        tax_rate = product.tax  # `tax_rate`を取得
 
         try:
             stock = Stock.objects.get(storecode=storecode, JAN=product)
@@ -184,16 +184,21 @@ class TransactionSerializer(serializers.ModelSerializer):
         stock.quantity -= points
         stock.save()
 
+        # `SaleProduct`オブジェクトを作成
         SaleProduct.objects.create(
             transaction=transaction_instance,
             JAN=product,
             name=product.name,
             price=price,
-            tax=tax_rate,
+            tax=tax_rate,  # `tax_rate`を保存
             points=points,
         )
 
-        return price, tax_rate, points
+        # `tax_rate`をsale_product_dataに追加
+        sale_product_data["price"] = price
+        sale_product_data["tax"] = tax_rate
+
+        return price, tax_rate, points  # `tax_rate`を返す
 
     def calculate_tax_amounts(self, tax_10_total_price, tax_8_total_price):
         tax_10_total = (tax_10_total_price * Decimal("10.00") / Decimal("110.00")).quantize(
@@ -226,13 +231,13 @@ class TransactionSerializer(serializers.ModelSerializer):
                 **validated_data,
                 sale_id=sale_id,
                 sale_date=current_time,
-                purchase_points=0,  # 初期値を設定
-                tax_10_percent=Decimal("0.00"),  # 初期値を設定
-                tax_8_percent=Decimal("0.00"),  # 初期値を設定
-                tax_amount=Decimal("0.00"),  # 初期値を設定
-                total_amount=Decimal("0.00"),  # 初期値を設定
-                change=Decimal("0.00"),  # 初期値を設定
-                discount_amount=Decimal("0.00"),  # 初期値を設定
+                purchase_points=0,
+                tax_10_percent=Decimal("0.00"),
+                tax_8_percent=Decimal("0.00"),
+                tax_amount=Decimal("0.00"),
+                total_amount=Decimal("0.00"),
+                change=Decimal("0.00"),
+                discount_amount=Decimal("0.00"),
             )
 
             for sale_product_data in sale_products_data:
@@ -262,22 +267,21 @@ class TransactionSerializer(serializers.ModelSerializer):
                 elif coupon.coupon_type in ["product", "multi"]:
                     tax_10_total_price = sum(
                         p["price"] * p["points"] for p in sale_products_data if Decimal(p["tax"]) == Decimal("10.00")
-                    )
+                    ) or 0
                     tax_8_total_price = sum(
                         p["price"] * p["points"] for p in sale_products_data if Decimal(p["tax"]) == Decimal("8.00")
-                    )
+                    ) or 0
 
             tax_10_total, tax_8_total = self.calculate_tax_amounts(tax_10_total_price, tax_8_total_price)
             tax_amount = tax_10_total + tax_8_total
 
             change = deposit - total_amount_with_tax
 
-            if deposit <= total_amount_with_tax:
+            if deposit < total_amount_with_tax:
                 raise serializers.ValidationError("預かり金は総額を超えている必要があります。")
             if change < Decimal("0.00"):
                 raise serializers.ValidationError("お釣りは正の値である必要があります。")
 
-            # Set fields before saving the transaction instance
             transaction_instance.purchase_points = purchase_points
             transaction_instance.coupon_code = coupon_code
             transaction_instance.tax_10_percent = tax_10_total
@@ -287,7 +291,6 @@ class TransactionSerializer(serializers.ModelSerializer):
             transaction_instance.change = change
             transaction_instance.discount_amount = discount_amount
 
-            # Now save the instance
             transaction_instance.save()
 
         return transaction_instance
