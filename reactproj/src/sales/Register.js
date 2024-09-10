@@ -15,7 +15,7 @@ const Register = () => {
 
     const handleAddProduct = async () => {
         const url = `http://localhost/api/items/?jan=${janCode}`;
-        const key = "Q8rI2MHF.yYg11kHQnNyxcC4mGO3dCm33s2wjAZ3D";
+        const key = "yxuyIpjq.w4Luq4TU8L4V0sY61z2ZOeSFgc1jaA2D";
         const headers = {
             "X-Api-Key": key,
             "Content-Type": "application/json"

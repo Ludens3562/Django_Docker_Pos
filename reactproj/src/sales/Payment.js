@@ -31,7 +31,7 @@ const Payment = () => {
         };
 
         const url = 'http://localhost/api/transactions/';
-        const key = "Q8rI2MHF.yYg11kHQnNyxcC4mGO3dCm33s2wjAZ3D";
+        const key = "yxuyIpjq.w4Luq4TU8L4V0sY61z2ZOeSFgc1jaA2D";
         const headers = {
             "X-Api-Key": key,
             "Content-Type": "application/json"
@@ -56,7 +56,7 @@ const Payment = () => {
     return (
         <div className="container">
             <h1>お預かり金額の入力</h1>
-            <h2>合計金額: ¥{total.toFixed(2)}</h2>
+            <h2>合計金額: ¥{total}</h2>
             <input
                 type="number"
                 value={deposit}
